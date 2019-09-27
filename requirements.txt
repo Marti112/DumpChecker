@@ -1,0 +1,4 @@
+arrow
+PyQt5
+getmac
+psutil
