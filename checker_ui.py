@@ -23,7 +23,7 @@ class Ui_MainWindow(object):
         self.labelEmailTitle.setObjectName("labelEmailTitle")
         self.gridLayout.addWidget(self.labelEmailTitle, 10, 0, 1, 1)
         self.CheckBoxSendDmp = QtWidgets.QCheckBox(self.centralwidget)
-        self.CheckBoxSendDmp.setObjectName("radioButtonSendDmp")
+        self.CheckBoxSendDmp.setObjectName("checkBoxSendDmp")
         self.gridLayout.addWidget(self.CheckBoxSendDmp, 9, 0, 1, 1)
         self.spinBoxHours = QtWidgets.QSpinBox(self.centralwidget)
         self.spinBoxHours.setObjectName("spinBoxHours")

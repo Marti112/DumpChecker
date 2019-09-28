@@ -21,15 +21,11 @@ def load_default_config():
     },
 
   "EMAIL":{
-    "CHECKER_AUTH":{
-      "LOGIN": "andumpchecker@gmail.com",
-      "PASSWORD": "ye9-tyF-j9L-HUR"
-    }, 
 
     "RECIPIENT_ADDRESSES": [
 
     ],
-
+    "ATTACH_FILES_MAX_SIZE": 25,
     "SEND_DMP_FILES": false,
     "TITLE": "DMP in logs!",
     "SUBJECT": ""

@@ -65,7 +65,7 @@ class EmailSenderThread(QThread):
         message = f'{self.configs["EMAIL"]["SUBJECT"]}\nList of dmp:\n{dump_file_names}'
         auth = self.configs["UTILITY_CONFIGS"]["CHECKER_AUTH"]
         gmail = GMail(auth["LOGIN"], auth["PASSWORD"])
-        if self.configs["EMAIL"]["SEND_DMP_FILES"]:
+        if self.configs["EMAIL"]["SEND_DMP_FILES"] and sum([d.file_size.megabytes for d in self.dumps]) < int(self.configs["EMAIL"]["ATTACH_FILES_MAX_SIZE"]):
             attachments = [d.full_path for d in self.dumps]
         else:
             attachments = []
@@ -73,7 +73,7 @@ class EmailSenderThread(QThread):
         email_title = self.configs["EMAIL"]["TITLE"]
         recipient = ";".join(self.configs["EMAIL"]["RECIPIENT_ADDRESSES"])
         msg = Message(email_title, to=recipient, text=message, attachments=attachments)
-        self.EmailSenderThreadSignal.emit(message)
+        self.EmailSenderThreadSignal.emit(dump_file_names)
         print("Start sending email")
         try:
             gmail.send(msg)
@@ -160,6 +160,8 @@ class DumpChecker(QMainWindow):
         if isinstance(self.ui.lineEditAddNewRecipient, QLineEditWithEnterClickEvent):
             self.ui.lineEditAddNewRecipient.enter_pressed.connect(self.add_new_recipient_by_enter_click)
         self.ui.lineEditAddNewRecipient.textChanged.connect(self.validate_entered_email)
+
+        self.ui.CheckBoxSendDmp.setToolTip(f'Send *.dmp files if their size in total less then {self.configs["EMAIL"]["ATTACH_FILES_MAX_SIZE"]}Mb.')
 
         if self.configs["UTILITY_CONFIGS"]["AUTORUN"]:
             self.start_check()
