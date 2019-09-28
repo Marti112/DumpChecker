@@ -8,11 +8,13 @@
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 
+from custom_elements import QLineEditWithEnterClickEvent
+
 
 class Ui_MainWindow(object):
     def setupUi(self, MainWindow):
         MainWindow.setObjectName("MainWindow")
-        MainWindow.resize(723, 595)
+        MainWindow.resize(800, 600)
         self.centralwidget = QtWidgets.QWidget(MainWindow)
         self.centralwidget.setObjectName("centralwidget")
         self.gridLayout = QtWidgets.QGridLayout(self.centralwidget)
@@ -87,13 +89,9 @@ class Ui_MainWindow(object):
         self.spinBoxSeconds = QtWidgets.QSpinBox(self.centralwidget)
         self.spinBoxSeconds.setObjectName("spinBoxSeconds")
         self.gridLayout.addWidget(self.spinBoxSeconds, 4, 3, 2, 1)
-        self.lineEditAddNewRecipient = QtWidgets.QLineEdit(self.centralwidget)
+        self.lineEditAddNewRecipient = QLineEditWithEnterClickEvent(self.centralwidget)
         self.lineEditAddNewRecipient.setObjectName("lineEditAddNewRecipient")
         self.lineEditAddNewRecipient.setPlaceholderText("Type Email address...")
-        # emailRegex = QRegExp("[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,3}")
-        # emailValidator = QRegExpValidator(emailRegex, MainWindow)
-        # self.lineEditAddNewRecipient.setValidator(emailValidator)
-        # "martinakbaev@gmail.com"
         self.gridLayout.addWidget(self.lineEditAddNewRecipient, 3, 0, 2, 2)
         self.label_5 = QtWidgets.QLabel(self.centralwidget)
         self.label_5.setObjectName("label_5")
@@ -118,7 +116,7 @@ class Ui_MainWindow(object):
 
     def retranslateUi(self, MainWindow):
         _translate = QtCore.QCoreApplication.translate
-        MainWindow.setWindowTitle(_translate("MainWindow", "MainWindow"))
+        MainWindow.setWindowTitle(_translate("MainWindow", "Dump checker"))
         self.labelEmailTitle.setText(_translate("MainWindow", "Email title:"))
         self.CheckBoxSendDmp.setText(_translate("MainWindow", "Send dmp files"))
         self.label_6.setText(_translate("MainWindow", "Email recipients:"))

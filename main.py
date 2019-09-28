@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import shutil
 import sys
 from threading import Event
@@ -13,8 +14,22 @@ from PyQt5.QtWidgets import QMainWindow, QApplication, QMessageBox
 from gmail import Message, GMail
 
 from checker_ui import Ui_MainWindow
-from exceptions import RecipientNotSetError, ErrorWhileCopying
+from custom_elements import QLineEditWithEnterClickEvent
+from exceptions import RecipientNotSetError, ErrorWhileCopying, PathDoesntExist
 from helpers import load_and_get_configs, CONFIG_PATH
+
+
+class FileSize:
+    def __init__(self, size):
+        self.size = size
+
+    @property
+    def megabytes(self) -> float:
+        return self.size / 1024 / 1024
+
+    @property
+    def kilobytes(self) -> float:
+        return self.size / 1024
 
 
 class Dump:
@@ -29,6 +44,9 @@ class Dump:
     @property
     def full_path(self):
         return self._dump
+
+    def file_size(self):
+        return FileSize(os.path.getsize(self._dump))
 
 
 class EmailSenderThread(QThread):
@@ -131,6 +149,7 @@ class DumpChecker(QMainWindow):
         self.ui.pushButtonStart.clicked.connect(self.start_check)
         self.ui.pushButtonStop.clicked.connect(self.stop_check)
 
+        self.ui.pushButtonAddNewRecipient.setDisabled(True)
         self.ui.pushButtonAddNewRecipient.clicked.connect(self.add_new_recipient)
         self.ui.pushButtonRemoveRecipient.clicked.connect(self.remove_recipient)
 
@@ -138,6 +157,9 @@ class DumpChecker(QMainWindow):
         self.ui.pushButtonRemoveRecipient.setDisabled(True)
 
         self.ui.textEditLogView.setReadOnly(True)
+        if isinstance(self.ui.lineEditAddNewRecipient, QLineEditWithEnterClickEvent):
+            self.ui.lineEditAddNewRecipient.enter_pressed.connect(self.add_new_recipient_by_enter_click)
+        self.ui.lineEditAddNewRecipient.textChanged.connect(self.validate_entered_email)
 
         if self.configs["UTILITY_CONFIGS"]["AUTORUN"]:
             self.start_check()
@@ -145,6 +167,29 @@ class DumpChecker(QMainWindow):
     def refresh_log_view_message(self, message):
         old_value = self.ui.textEditLogView.toPlainText()
         self.ui.textEditLogView.setText(f"{old_value}\n{arrow.now().format('DD-MM-YYYY HH:mm:ss'):=^70}\n{message}")
+
+    def add_new_recipient_by_enter_click(self, event):
+        if event.key() == QtCore.Qt.Key_Return:
+            if self.validate_entered_email():
+                self.add_new_recipient()
+
+    def validate_entered_email(self):
+        add_email_line_edit_current_value = self.ui.lineEditAddNewRecipient.text()
+
+        email_re = re.compile(r"(^[-!#$%&'*+/=?^_`{}|~0-9A-Z]+(\.[-!#$%&'*+/=?^_`{}|~0-9A-Z]+)*"  # dot-atom
+            r'|^"([\001-\010\013\014\016-\037!#-\[\]-\177]|\\[\001-011\013\014\016-\177])*"'  # quoted-string
+            r')@(?:[A-Z0-9-]+\.)+[A-Z]{2,6}$', re.IGNORECASE)
+        if add_email_line_edit_current_value and email_re.match(add_email_line_edit_current_value):
+            self.ui.lineEditAddNewRecipient.setStyleSheet("color: rgb(0, 150, 10);")
+            self.ui.pushButtonAddNewRecipient.setEnabled(True)
+            return True
+        elif not add_email_line_edit_current_value:
+            self.ui.lineEditAddNewRecipient.setStyleSheet("color: rgb(137, 137, 137);")
+
+        else:
+            self.ui.lineEditAddNewRecipient.setStyleSheet("color: rgb(150, 10, 0);")
+            self.ui.pushButtonAddNewRecipient.setDisabled(True)
+            return False
 
     def load_default_values(self):
 
@@ -186,7 +231,7 @@ class DumpChecker(QMainWindow):
         if os.path.isdir(log_path):
             CONFIGS["LOGS_PATH"]["SERVER"] = self.ui.lineEditLogPath.text()
         else:
-            self._warning(f"Log directory '{log_path}' is incorrect.\nLoad default value")
+            self._warning(f"Directory '{log_path}' doesn't exist.\nLoad default value")
             self.ui.lineEditLogPath.setText(CONFIGS["LOGS_PATH"]["SERVER"])
 
         dump_storing_path = self.ui.lineEditDumpStoringDirPath.text()
@@ -241,14 +286,23 @@ class DumpChecker(QMainWindow):
             self._warning("Please add email recipient addresses.")
             raise RecipientNotSetError("Email recipients list is empty!")
 
+    def check_log_path_exist(self):
+        if not os.path.isdir(self.configs["LOGS_PATH"]["SERVER"]):
+            self._warning("Please add Server's log path.")
+            raise PathDoesntExist("Incorrect log path!")
+
     def start_check(self):
         self.save_new_configs()
 
         try:
             self.check_recipient()
+            self.check_log_path_exist()
         except RecipientNotSetError as er:
             print(er)
             self.ui.lineEditAddNewRecipient.setFocus()
+        except PathDoesntExist as er:
+            print(er)
+            self.ui.lineEditLogPath.setFocus()
         else:
             self.checker_stop_event.clear()
             self.check_thread.delay = self._wait_time()
@@ -266,15 +320,15 @@ class DumpChecker(QMainWindow):
     def _recipients(self):
         return [str(self.ui.listWidgetRecipients.item(i).text()) for i in range(self.ui.listWidgetRecipients.count())]
 
-    def add_new_recipient(self, p):
+    def add_new_recipient(self):
         value = self.ui.lineEditAddNewRecipient.text()
-        if value:
-            email_items = self._recipients
-            if value in email_items:
-                self._warning(f"{value} already in recipients list.")
-            else:
-                self.ui.listWidgetRecipients.addItem(value)
-                self.ui.lineEditAddNewRecipient.setText("")
+        email_items = self._recipients
+        if value in email_items:
+            self._warning(f"{value} already in recipients list.")
+        else:
+            self.ui.listWidgetRecipients.addItem(value)
+            self.ui.lineEditAddNewRecipient.setText("")
+            self.ui.lineEditAddNewRecipient.setStyleSheet("color: rgb(137, 137, 137);")
 
     def remove_recipient(self):
         self.ui.listWidgetRecipients.takeItem(self.ui.listWidgetRecipients.currentRow())
@@ -294,15 +348,15 @@ class DumpChecker(QMainWindow):
         for dump in dumps:
             try:
                 shutil.move(dump.full_path, self.ui.lineEditDumpStoringDirPath.text())
-            except ErrorWhileCopying as e:
+            except Exception as e:
                 print(e)
 
 
 if __name__ == '__main__':
     from tempfile import NamedTemporaryFile
 
-    f = NamedTemporaryFile(prefix='lock01_', delete=True) if not [f for f in os.listdir(os.environ["TEMP"]) if
-                                                                  f.find('lock01_') != -1] else sys.exit()
+    f = NamedTemporaryFile(prefix='lock01_dchecker', delete=True) if not [f for f in os.listdir(os.environ["TEMP"]) if
+                                                                  f.find('lock01_dchecker') != -1] else sys.exit()
 
     app = QApplication([])
     application = DumpChecker()

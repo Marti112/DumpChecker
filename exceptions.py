@@ -8,3 +8,7 @@ class ErrorWhileCopying(Exception):
 
 class EmailSendingError(Exception):
     pass
+
+
+class PathDoesntExist(Exception):
+    pass
