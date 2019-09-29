@@ -364,10 +364,12 @@ class DumpChecker(QMainWindow):
 if __name__ == '__main__':
     from tempfile import NamedTemporaryFile
 
-    f = NamedTemporaryFile(prefix='lock01_dchecker', delete=True) if not [f for f in os.listdir(os.environ["TEMP"]) if
-                                                                  f.find('lock01_dchecker') != -1] else sys.exit()
+    if not [f for f in os.listdir(os.environ["TEMP"]) if f.find('lock01_dchecker') != -1]:
+        NamedTemporaryFile(prefix='lock01_dchecker', delete=True)
 
-    app = QApplication([])
-    application = DumpChecker()
-    application.show()
-    sys.exit(app.exec())
+        app = QApplication([])
+        application = DumpChecker()
+        application.show()
+        sys.exit(app.exec())
+    else:
+        sys.exit()
