@@ -45,8 +45,13 @@ class Dump:
     def full_path(self):
         return self._dump
 
+    @property
     def file_size(self):
         return FileSize(os.path.getsize(self._dump))
+
+    @property
+    def creation_time(self):
+        return arrow.get(os.path.getmtime(self._dump))
 
 
 class EmailSenderThread(QThread):
@@ -169,6 +174,7 @@ class DumpChecker(QMainWindow):
     def refresh_log_view_message(self, message):
         old_value = self.ui.textEditLogView.toPlainText()
         self.ui.textEditLogView.setText(f"{old_value}\n{arrow.now().format('DD-MM-YYYY HH:mm:ss'):=^70}\n{message}")
+        self.ui.textEditLogView.verticalScrollBar().setValue(self.ui.textEditLogView.verticalScrollBar().maximum())
 
     def add_new_recipient_by_enter_click(self, event):
         if event.key() == QtCore.Qt.Key_Return:
@@ -341,6 +347,7 @@ class DumpChecker(QMainWindow):
     def send_email_in_new_thread(self, dumps: [Dump]):
         self.email_sender_stop_event.clear()
         self.email_sender_thread.dumps = dumps
+        self.email_sender_thread.configs = self.configs
         self.email_sender_thread.start()
 
     def send_email(self, dumps: [Dump]):
@@ -349,7 +356,7 @@ class DumpChecker(QMainWindow):
     def move_old_dumps(self, dumps):
         for dump in dumps:
             try:
-                shutil.move(dump.full_path, self.ui.lineEditDumpStoringDirPath.text())
+                shutil.move(dump.full_path, os.path.join(self.ui.lineEditDumpStoringDirPath.text(), dump.file_name))
             except Exception as e:
                 print(e)
 
