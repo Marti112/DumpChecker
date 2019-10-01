@@ -1,6 +1,5 @@
 import json
 import os
-from threading import Thread
 
 CONFIG_PATH = os.path.join(os.environ["TEMP"], "checker_config.json")
 
@@ -36,7 +35,7 @@ def load_default_config():
         "LOGIN": "andumpchecker@gmail.com",
         "PASSWORD": "ye9-tyF-j9L-HUR"
     },
-
+    "LAUNCH_WITH_SYSTEM": false,
     "AUTORUN": true
     }
 }
@@ -56,4 +55,3 @@ def load_and_get_configs():
               f"Creating new config file with default parameters.")
         load_default_config()
         return load_and_get_configs()
-

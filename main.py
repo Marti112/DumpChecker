@@ -9,7 +9,7 @@ from time import sleep
 import arrow
 import getmac as getmac
 from PyQt5 import QtCore
-from PyQt5.QtCore import QThread
+from PyQt5.QtCore import QThread, QSettings, QCoreApplication, QFileInfo
 from PyQt5.QtWidgets import QMainWindow, QApplication, QMessageBox
 from gmail import Message, GMail
 
@@ -168,8 +168,31 @@ class DumpChecker(QMainWindow):
 
         self.ui.CheckBoxSendDmp.setToolTip(f'Send *.dmp files if their size in total less then {self.configs["EMAIL"]["ATTACH_FILES_MAX_SIZE"]}Mb.')
 
+        self.settings = QSettings("HKEY_LOCAL_MACHINE\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", QSettings.NativeFormat)
+
+        self.ui.pushButtonSave.clicked.connect(self.save_new_configs)
+        self.ui.pushButtonSave.setDisabled(True)
+
+        self.ui.spinBoxDays.valueChanged.connect(lambda: self.ui.pushButtonSave.setEnabled(True))
+        self.ui.spinBoxHours.valueChanged.connect(lambda: self.ui.pushButtonSave.setEnabled(True))
+        self.ui.spinBoxMinutes.valueChanged.connect(lambda: self.ui.pushButtonSave.setEnabled(True))
+        self.ui.spinBoxSeconds.valueChanged.connect(lambda: self.ui.pushButtonSave.setEnabled(True))
+
+        self.ui.CheckBoxSendDmp.stateChanged.connect(lambda: self.ui.pushButtonSave.setEnabled(True))
+        self.ui.сheckBoxRunWithSystem.stateChanged.connect(lambda: self.ui.pushButtonSave.setEnabled(True))
+
+        self.ui.lineEditEmailTitle.textChanged.connect(lambda: self.ui.pushButtonSave.setEnabled(True))
+        self.ui.textEditEmailMessage.textChanged.connect(lambda: self.ui.pushButtonSave.setEnabled(True))
+
         if self.configs["UTILITY_CONFIGS"]["AUTORUN"]:
             self.start_check()
+
+    def set_value_to_registy_key(self):
+        if self.ui.сheckBoxRunWithSystem.isChecked():
+            self.settings.setValue("DumpChecker", QFileInfo(QCoreApplication.applicationFilePath()).filePath())
+        else:
+            self.settings.remove("DumpChecker")
+        self.settings.sync()
 
     def refresh_log_view_message(self, message):
         old_value = self.ui.textEditLogView.toPlainText()
@@ -222,12 +245,15 @@ class DumpChecker(QMainWindow):
 
         self.ui.listWidgetRecipients.addItems(sorted(CONFIGS["EMAIL"]["RECIPIENT_ADDRESSES"]))
 
+        self.ui.сheckBoxRunWithSystem.setChecked(CONFIGS["UTILITY_CONFIGS"]["LAUNCH_WITH_SYSTEM"])
+
         if not os.path.isdir(CONFIGS["DUMPS_STORING_DIRECTORY"]):
             os.makedirs(CONFIGS["DUMPS_STORING_DIRECTORY"])
         return CONFIGS
 
     def save_new_configs(self):
         CONFIGS = self.configs
+        self.set_value_to_registy_key()
 
         delay = CONFIGS["DELAY"]
         delay["DAYS"] = self.ui.spinBoxDays.value()
@@ -271,10 +297,15 @@ class DumpChecker(QMainWindow):
 
         CONFIGS["EMAIL"]["SEND_DMP_FILES"] = self.ui.CheckBoxSendDmp.isChecked()
 
+        CONFIGS["UTILITY_CONFIGS"]["LAUNCH_WITH_SYSTEM"] = self.ui.сheckBoxRunWithSystem.isChecked()
+
         CONFIGS["EMAIL"]["RECIPIENT_ADDRESSES"] = self._recipients
         with open(CONFIG_PATH, "w") as f:
             f.write(json.dumps(CONFIGS, indent=4))
+
         self.configs = load_and_get_configs()
+        self.ui.pushButtonSave.setDisabled(True)
+        self.ui.textEditLogView.setFocus()
 
     def in_case_of_item_selected(self, p):
         self.ui.pushButtonRemoveRecipient.setEnabled(True)
@@ -300,8 +331,6 @@ class DumpChecker(QMainWindow):
             raise PathDoesntExist("Incorrect log path!")
 
     def start_check(self):
-        self.save_new_configs()
-
         try:
             self.check_recipient()
             self.check_log_path_exist()
@@ -337,12 +366,14 @@ class DumpChecker(QMainWindow):
             self.ui.listWidgetRecipients.addItem(value)
             self.ui.lineEditAddNewRecipient.setText("")
             self.ui.lineEditAddNewRecipient.setStyleSheet("color: rgb(137, 137, 137);")
+            self.ui.pushButtonSave.setEnabled(True)
 
     def remove_recipient(self):
         self.ui.listWidgetRecipients.takeItem(self.ui.listWidgetRecipients.currentRow())
         self.ui.listWidgetRecipients.clearSelection()
         self.ui.pushButtonRemoveRecipient.setDisabled(True)
         self.ui.lineEditAddNewRecipient.setFocus()
+        self.ui.pushButtonSave.setEnabled(True)
 
     def send_email_in_new_thread(self, dumps: [Dump]):
         self.email_sender_stop_event.clear()
