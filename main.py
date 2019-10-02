@@ -189,7 +189,7 @@ class DumpChecker(QMainWindow):
 
     def set_value_to_registy_key(self):
         if self.ui.сheckBoxRunWithSystem.isChecked():
-            self.settings.setValue("DumpChecker", QFileInfo(QCoreApplication.applicationFilePath()).filePath())
+            self.settings.setValue("DumpChecker", QFileInfo(QCoreApplication.applicationFilePath()).filePath().replace("/", "\\"))
         else:
             self.settings.remove("DumpChecker")
         self.settings.sync()
