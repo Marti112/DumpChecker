@@ -96,38 +96,25 @@ class CheckThread(QThread):
         super().__init__(parent)
         self.CONFIGS = configs
 
-    def dumps_in_logs(self, logs_dir):
-        def search_dumps(log_path):
-            dumps = []
-            cwd, _, logs = next(os.walk(log_path))
-            for log_file in logs:
-                name, extension = os.path.splitext(log_file)
-                if extension == ".dmp":
-                    dump = Dump(os.path.join(cwd, log_file))
-                    dumps.append(dump)
-            return dumps
-
-        servers_logs_dir = logs_dir["SERVER"]
-        return search_dumps(servers_logs_dir)
-
-    def check(self, configs):
-        print(f"{arrow.now().format('DD-MM-YYYY HH:mm:ss'):=^70}")
-
-        dumps = self.dumps_in_logs(configs["LOGS_PATH"])
-        if dumps:
-            self.CheckerThreadSignal.emit(dumps)
-
-        print("=" * 70 + "\n")
+    def dumps_in_logs(self, log_path):
+        dumps = []
+        cwd, _, logs = next(os.walk(log_path))
+        for log_file in logs:
+            name, extension = os.path.splitext(log_file)
+            if extension == ".dmp":
+                dump = Dump(os.path.join(cwd, log_file))
+                dumps.append(dump)
+        return dumps
 
     def run(self):
+        print(f"{arrow.now().format('DD-MM-YYYY HH:mm:ss'):=^70}")
         try:
-            self.check(self.CONFIGS)
-        except RecipientNotSetError as er:
-            print(er)
-            sleep(10)
-            exit(1)
+            dumps = self.dumps_in_logs(self.CONFIGS["LOGS_PATH"]["SERVER"])
+            if dumps:
+                self.CheckerThreadSignal.emit(dumps)
+            print("=" * 70 + "\n")
         except Exception as ex:
-            print(ex)
+            print(f"{ex.__class__.__name__}: {ex}")
             sleep(10)
 
 
@@ -214,6 +201,7 @@ class DumpChecker(QMainWindow):
             return True
         elif not add_email_line_edit_current_value:
             self.ui.lineEditAddNewRecipient.setStyleSheet("color: rgb(137, 137, 137);")
+            return False
 
         else:
             self.ui.lineEditAddNewRecipient.setStyleSheet("color: rgb(150, 10, 0);")
@@ -372,14 +360,11 @@ class DumpChecker(QMainWindow):
         self.ui.lineEditAddNewRecipient.setFocus()
         self.ui.pushButtonSave.setEnabled(True)
 
-    def send_email_in_new_thread(self, dumps: [Dump]):
+    def send_email(self, dumps: [Dump]):
         self.email_sender_stop_event.clear()
         self.email_sender_thread.dumps = dumps
         self.email_sender_thread.configs = self.configs
         self.email_sender_thread.start()
-
-    def send_email(self, dumps: [Dump]):
-        self.send_email_in_new_thread(dumps)
 
     def move_old_dumps(self, dumps):
         for dump in dumps:
