@@ -9,13 +9,13 @@ from time import sleep
 import arrow
 import getmac as getmac
 from PyQt5 import QtCore
-from PyQt5.QtCore import QThread, QSettings, QCoreApplication, QFileInfo
+from PyQt5.QtCore import QThread, QSettings, QCoreApplication, QFileInfo, QTimer
 from PyQt5.QtWidgets import QMainWindow, QApplication, QMessageBox
 from gmail import Message, GMail
 
 from checker_ui import Ui_MainWindow
 from custom_elements import QLineEditWithEnterClickEvent
-from exceptions import RecipientNotSetError, ErrorWhileCopying, PathDoesntExist
+from exceptions import RecipientNotSetError, PathDoesntExist
 from helpers import load_and_get_configs, CONFIG_PATH
 
 
@@ -92,11 +92,9 @@ class EmailSenderThread(QThread):
 class CheckThread(QThread):
     CheckerThreadSignal = QtCore.pyqtSignal(object)
 
-    def __init__(self, parent, configs, stop_event, delay):
+    def __init__(self, parent, configs):
         super().__init__(parent)
         self.CONFIGS = configs
-        self.stop_event = stop_event
-        self.delay = delay
 
     def dumps_in_logs(self, logs_dir):
         def search_dumps(log_path):
@@ -122,17 +120,15 @@ class CheckThread(QThread):
         print("=" * 70 + "\n")
 
     def run(self):
-        while not self.stop_event.is_set():
-            try:
-                self.check(self.CONFIGS)
-                sleep(self.delay)
-            except RecipientNotSetError as er:
-                print(er)
-                sleep(10)
-                exit(1)
-            except Exception as ex:
-                print(ex)
-                sleep(10)
+        try:
+            self.check(self.CONFIGS)
+        except RecipientNotSetError as er:
+            print(er)
+            sleep(10)
+            exit(1)
+        except Exception as ex:
+            print(ex)
+            sleep(10)
 
 
 class DumpChecker(QMainWindow):
@@ -142,8 +138,7 @@ class DumpChecker(QMainWindow):
         self.ui.setupUi(self)
         self.configs = self.load_default_values()
 
-        self.checker_stop_event = Event()
-        self.check_thread = CheckThread(self, configs=self.configs, stop_event=self.checker_stop_event, delay=self._wait_time())
+        self.check_thread = CheckThread(self, configs=self.configs)
         self.check_thread.CheckerThreadSignal.connect(self.send_email)
 
         self.email_sender_stop_event = Event()
@@ -183,6 +178,9 @@ class DumpChecker(QMainWindow):
 
         self.ui.lineEditEmailTitle.textChanged.connect(lambda: self.ui.pushButtonSave.setEnabled(True))
         self.ui.textEditEmailMessage.textChanged.connect(lambda: self.ui.pushButtonSave.setEnabled(True))
+
+        self.check_timer = QTimer(self)
+        self.check_timer.timeout.connect(self.start_check)
 
         if self.configs["UTILITY_CONFIGS"]["AUTORUN"]:
             self.start_check()
@@ -341,14 +339,13 @@ class DumpChecker(QMainWindow):
             print(er)
             self.ui.lineEditLogPath.setFocus()
         else:
-            self.checker_stop_event.clear()
-            self.check_thread.delay = self._wait_time()
+            self.check_timer.start(self._wait_time() * 1000)
             self.check_thread.start()
             self.ui.pushButtonStart.setDisabled(True)
             self.ui.pushButtonStop.setEnabled(True)
 
     def stop_check(self):
-        self.checker_stop_event.set()
+        self.check_timer.stop()
 
         self.ui.pushButtonStart.setEnabled(True)
         self.ui.pushButtonStop.setEnabled(False)
