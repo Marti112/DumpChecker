@@ -4,10 +4,8 @@ import re
 import shutil
 import sys
 from threading import Event
-from time import sleep
 
 import arrow
-import getmac as getmac
 from PyQt5 import QtCore
 from PyQt5.QtCore import QThread, QSettings, QCoreApplication, QFileInfo, QTimer
 from PyQt5.QtWidgets import QMainWindow, QApplication, QMessageBox
@@ -17,6 +15,7 @@ from checker_ui import Ui_MainWindow
 from custom_elements import QLineEditWithEnterClickEvent
 from exceptions import RecipientNotSetError, PathDoesntExist
 from helpers import load_and_get_configs, CONFIG_PATH
+from logger import get_logger
 
 
 class FileSize:
@@ -115,7 +114,6 @@ class CheckThread(QThread):
             print("=" * 70 + "\n")
         except Exception as ex:
             print(f"{ex.__class__.__name__}: {ex}")
-            sleep(10)
 
 
 class DumpChecker(QMainWindow):
@@ -160,6 +158,9 @@ class DumpChecker(QMainWindow):
         self.ui.spinBoxMinutes.valueChanged.connect(lambda: self.ui.pushButtonSave.setEnabled(True))
         self.ui.spinBoxSeconds.valueChanged.connect(lambda: self.ui.pushButtonSave.setEnabled(True))
 
+        self.ui.lineEditLogPath.textChanged.connect(lambda: self.ui.pushButtonSave.setEnabled(True))
+        self.ui.lineEditDumpStoringDirPath.textChanged.connect(lambda: self.ui.pushButtonSave.setEnabled(True))
+
         self.ui.CheckBoxSendDmp.stateChanged.connect(lambda: self.ui.pushButtonSave.setEnabled(True))
         self.ui.сheckBoxRunWithSystem.stateChanged.connect(lambda: self.ui.pushButtonSave.setEnabled(True))
 
@@ -167,7 +168,7 @@ class DumpChecker(QMainWindow):
         self.ui.textEditEmailMessage.textChanged.connect(lambda: self.ui.pushButtonSave.setEnabled(True))
 
         self.check_timer = QTimer(self)
-        self.check_timer.timeout.connect(self.start_check)
+        self.check_timer.timeout.connect(self.check)
 
         if self.configs["UTILITY_CONFIGS"]["AUTORUN"]:
             self.start_check()
@@ -221,9 +222,7 @@ class DumpChecker(QMainWindow):
         self.ui.lineEditLogPath.setText(CONFIGS["LOGS_PATH"]["SERVER"])
         self.ui.lineEditDumpStoringDirPath.setText(CONFIGS["DUMPS_STORING_DIRECTORY"])
 
-        cur_val = CONFIGS["EMAIL"]["TITLE"]
-        new_val = f'{getmac.get_mac_address()}: {cur_val}' if getmac.get_mac_address() not in cur_val else cur_val
-        self.ui.lineEditEmailTitle.setText(new_val)
+        self.ui.lineEditEmailTitle.setText(CONFIGS["EMAIL"]["TITLE"])
 
         self.ui.textEditEmailMessage.setText(CONFIGS["EMAIL"]["SUBJECT"])
 
@@ -247,14 +246,14 @@ class DumpChecker(QMainWindow):
         delay["MINUTES"] = self.ui.spinBoxMinutes.value()
         delay["SECONDS"] = self.ui.spinBoxSeconds.value()
 
-        log_path = self.ui.lineEditLogPath.text()
+        log_path = self.ui.lineEditLogPath.text().strip()
         if os.path.isdir(log_path):
-            CONFIGS["LOGS_PATH"]["SERVER"] = self.ui.lineEditLogPath.text()
+            CONFIGS["LOGS_PATH"]["SERVER"] = log_path
         else:
             self._warning(f"Directory '{log_path}' doesn't exist.\nLoad default value")
             self.ui.lineEditLogPath.setText(CONFIGS["LOGS_PATH"]["SERVER"])
 
-        dump_storing_path = self.ui.lineEditDumpStoringDirPath.text()
+        dump_storing_path = self.ui.lineEditDumpStoringDirPath.text().strip()
         if os.path.isdir(dump_storing_path):
             CONFIGS["DUMPS_STORING_DIRECTORY"] = dump_storing_path
         elif not os.path.isdir(dump_storing_path):
@@ -267,17 +266,14 @@ class DumpChecker(QMainWindow):
                     self._warning(f"{e}\nLoad default value")
                     self.ui.lineEditDumpStoringDirPath.setText(CONFIGS["DUMPS_STORING_DIRECTORY"])
 
-                else:
-                    CONFIGS["DUMPS_STORING_DIRECTORY"] = dump_storing_path
-                    self.ui.lineEditDumpStoringDirPath.setText(dump_storing_path)
+            elif answer == QMessageBox.No:
+                self.ui.lineEditDumpStoringDirPath.setText(CONFIGS["DUMPS_STORING_DIRECTORY"])
 
         else:
             self._warning(f"Dmps storing directory '{log_path}' is incorrect.\nLoad default value")
             self.ui.lineEditDumpStoringDirPath.setText(CONFIGS["DUMPS_STORING_DIRECTORY"])
 
-        cur_val = self.ui.lineEditEmailTitle.text()
-        new_val = f'{getmac.get_mac_address()}: {cur_val}' if getmac.get_mac_address() not in cur_val else cur_val
-        CONFIGS["EMAIL"]["TITLE"] = new_val
+        CONFIGS["EMAIL"]["TITLE"] = self.ui.lineEditEmailTitle.text()
 
         CONFIGS["EMAIL"]["SUBJECT"] = self.ui.textEditEmailMessage.toPlainText()
 
@@ -317,6 +313,10 @@ class DumpChecker(QMainWindow):
             raise PathDoesntExist("Incorrect log path!")
 
     def start_check(self):
+        self.ui.textEditLogView.setFocus()
+        self.check()
+
+    def check(self):
         try:
             self.check_recipient()
             self.check_log_path_exist()
@@ -329,6 +329,7 @@ class DumpChecker(QMainWindow):
         else:
             self.check_timer.start(self._wait_time() * 1000)
             self.check_thread.start()
+            self.check_thread.CONFIGS = self.configs
             self.ui.pushButtonStart.setDisabled(True)
             self.ui.pushButtonStop.setEnabled(True)
 
@@ -377,12 +378,18 @@ class DumpChecker(QMainWindow):
 if __name__ == '__main__':
     from tempfile import NamedTemporaryFile
 
+    logger = get_logger("DumpChecker")
+    logger.info("Starting utility...")
+
     if not [f for f in os.listdir(os.environ["TEMP"]) if f.find('lock01_dchecker') != -1]:
         NamedTemporaryFile(prefix='lock01_dchecker', delete=True)
 
         app = QApplication([])
         application = DumpChecker()
         application.show()
-        sys.exit(app.exec())
+        exit_code = app.exec_()
+        logger.info(f"exit code: {exit_code}\n")
+        sys.exit(exit_code)
     else:
+        logger.info("Another utility instance already running. Exit.")
         sys.exit()
