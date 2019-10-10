@@ -124,7 +124,7 @@ class Ui_MainWindow(object):
     def retranslateUi(self, MainWindow):
         _translate = QtCore.QCoreApplication.translate
         MainWindow.setWindowTitle(_translate("MainWindow", "Dump checker"))
-        self.labelEmailTitle.setText(_translate("MainWindow", "Email title:"))
+        self.labelEmailTitle.setText(_translate("MainWindow", "Email subject:"))
         self.CheckBoxSendDmp.setText(_translate("MainWindow", "Send dmp files"))
         self.label_6.setText(_translate("MainWindow", "Email recipients:"))
         self.label.setText(_translate("MainWindow", "Check every:"))
@@ -140,4 +140,4 @@ class Ui_MainWindow(object):
         self.label_4.setText(_translate("MainWindow", "Seconds"))
         self.pushButtonAddNewRecipient.setText(_translate("MainWindow", "Add"))
         self.label_5.setText(_translate("MainWindow", "Days"))
-        self.label_8.setText(_translate("MainWindow", "Old dmp storing directory"))
+        self.label_8.setText(_translate("MainWindow", "Old dmp storing directory:"))
