@@ -11,4 +11,6 @@ class EmailSendingError(Exception):
 
 
 class PathDoesntExist(Exception):
-    pass
+    def __init__(self, message, path_of,  *args, **kwargs):
+        super().__init__(message, *args, **kwargs)
+        self.path_to = path_of

@@ -13,6 +13,7 @@ from PyQt5.QtWidgets import QMainWindow, QApplication, QMessageBox
 from gmail import Message, GMail
 
 from checker_ui import Ui_MainWindow
+from constants import PathOf
 from custom_elements import QLineEditWithEnterClickEvent
 from exceptions import RecipientNotSetError, PathDoesntExist
 from helpers import load_and_get_configs, CONFIG_PATH
@@ -124,6 +125,9 @@ class DumpChecker(QMainWindow):
         self.ui.setupUi(self)
         self.configs = self.load_default_values()
 
+        self.settings = QSettings("HKEY_LOCAL_MACHINE\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", QSettings.NativeFormat)
+        self.set_value_to_registy_key()
+
         self.check_thread = CheckThread(self, configs=self.configs)
         self.check_thread.CheckerThreadSignal.connect(self.send_email)
 
@@ -148,8 +152,6 @@ class DumpChecker(QMainWindow):
         self.ui.lineEditAddNewRecipient.textChanged.connect(self.validate_entered_email)
 
         self.ui.CheckBoxSendDmp.setToolTip(f'Send *.dmp files if their size in total less then {self.configs["EMAIL"]["ATTACH_FILES_MAX_SIZE"]}Mb.')
-
-        self.settings = QSettings("HKEY_LOCAL_MACHINE\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", QSettings.NativeFormat)
 
         self.ui.pushButtonSave.clicked.connect(self.save_new_configs)
         self.ui.pushButtonSave.setDisabled(True)
@@ -233,8 +235,6 @@ class DumpChecker(QMainWindow):
 
         self.ui.сheckBoxRunWithSystem.setChecked(CONFIGS["UTILITY_CONFIGS"]["LAUNCH_WITH_SYSTEM"])
 
-        if not os.path.isdir(CONFIGS["DUMPS_STORING_DIRECTORY"]):
-            os.makedirs(CONFIGS["DUMPS_STORING_DIRECTORY"])
         return CONFIGS
 
     def save_new_configs(self):
@@ -308,10 +308,10 @@ class DumpChecker(QMainWindow):
             self._warning("Please add email recipient addresses.")
             raise RecipientNotSetError("Email recipients list is empty!")
 
-    def check_log_path_exist(self):
-        if not os.path.isdir(self.configs["LOGS_PATH"]["SERVER"]):
-            self._warning("Please add Server's log path.")
-            raise PathDoesntExist("Incorrect log path!")
+    def check_path_exist(self, path: str, path_of):
+        if not os.path.isdir(path):
+            self._warning(f"Please add correct {path_of}")
+            raise PathDoesntExist("Incorrect log path!", path_of)
 
     def start_check(self):
         self.ui.textEditLogView.setFocus()
@@ -320,13 +320,18 @@ class DumpChecker(QMainWindow):
     def check(self):
         try:
             self.check_recipient()
-            self.check_log_path_exist()
+            self.check_path_exist(self.configs["LOGS_PATH"]["SERVER"], PathOf.SERVER)
+            self.check_path_exist(self.configs["DUMPS_STORING_DIRECTORY"], PathOf.DMP_STORING)
         except RecipientNotSetError as er:
             logger.error(er)
             self.ui.lineEditAddNewRecipient.setFocus()
         except PathDoesntExist as er:
             logger.error(er)
-            self.ui.lineEditLogPath.setFocus()
+            if er.path_to == PathOf.SERVER:
+                self.ui.lineEditLogPath.setFocus()
+            elif er.path_to == PathOf.DMP_STORING:
+                self.ui.lineEditDumpStoringDirPath.setFocus()
+
         else:
             self.check_timer.start(self._wait_time() * 1000)
             self.check_thread.start()
