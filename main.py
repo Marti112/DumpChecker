@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import re
 import shutil
@@ -78,14 +79,14 @@ class EmailSenderThread(QThread):
         recipient = ";".join(self.configs["EMAIL"]["RECIPIENT_ADDRESSES"])
         msg = Message(email_title, to=recipient, text=message, attachments=attachments)
         self.EmailSenderThreadSignal.emit(dump_file_names)
-        print("Start sending email")
+        logger.info("Start sending email")
         try:
             gmail.send(msg)
-        except Exception as e:
-            print(f"Can't send message. {e}")
+        except Exception:
+            logger.exception(f"Can't send message.")
         else:
             self.EmailSendSignal.emit(self.dumps)
-            print("Email send.")
+            logger.info("Email send.")
 
 
 class CheckThread(QThread):
@@ -106,14 +107,14 @@ class CheckThread(QThread):
         return dumps
 
     def run(self):
-        print(f"{arrow.now().format('DD-MM-YYYY HH:mm:ss'):=^70}")
+        logger.info(f"{arrow.now().format('DD-MM-YYYY HH:mm:ss'):=^70}")
         try:
             dumps = self.dumps_in_logs(self.CONFIGS["LOGS_PATH"]["SERVER"])
             if dumps:
                 self.CheckerThreadSignal.emit(dumps)
-            print("=" * 70 + "\n")
+            logger.info("=" * 70 + "\n")
         except Exception as ex:
-            print(f"{ex.__class__.__name__}: {ex}")
+            logger.exception(f"{ex.__class__.__name__}")
 
 
 class DumpChecker(QMainWindow):
@@ -321,10 +322,10 @@ class DumpChecker(QMainWindow):
             self.check_recipient()
             self.check_log_path_exist()
         except RecipientNotSetError as er:
-            print(er)
+            logger.error(er)
             self.ui.lineEditAddNewRecipient.setFocus()
         except PathDoesntExist as er:
-            print(er)
+            logger.error(er)
             self.ui.lineEditLogPath.setFocus()
         else:
             self.check_timer.start(self._wait_time() * 1000)
@@ -372,13 +373,19 @@ class DumpChecker(QMainWindow):
             try:
                 shutil.move(dump.full_path, os.path.join(self.ui.lineEditDumpStoringDirPath.text(), dump.file_name))
             except Exception as e:
-                print(e)
+                logger.error(e)
 
 
 if __name__ == '__main__':
     from tempfile import NamedTemporaryFile
 
-    logger = get_logger("DumpChecker")
+    argv = sys.argv
+    log_levels = {
+        "INFO":  logging.INFO,
+        "DEBUG": logging.DEBUG,
+    }
+    level = str(argv[1]).upper() if len(argv) == 2 else logging.NOTSET
+    logger = get_logger("DumpChecker", log_level=log_levels.get(level, logging.NOTSET))
     logger.info("Starting utility...")
 
     if not [f for f in os.listdir(os.environ["TEMP"]) if f.find('lock01_dchecker') != -1]:
