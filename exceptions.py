@@ -14,3 +14,11 @@ class PathDoesntExist(Exception):
     def __init__(self, message, path_of,  *args, **kwargs):
         super().__init__(message, *args, **kwargs)
         self.path_to = path_of
+
+
+class NetworkConnectionError(EmailSendingError):
+    pass
+
+
+class DailyEmailQuotaExceededError(EmailSendingError):
+    pass

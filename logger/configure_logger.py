@@ -2,7 +2,7 @@ import logging
 import os
 import sys
 from logging.handlers import TimedRotatingFileHandler
-FORMATTER = logging.Formatter("%(asctime)s — %(name)s — %(levelname)s — %(message)s")
+FORMATTER = logging.Formatter("[%(asctime)s] [%(name)s] [%(levelname)s] — %(message)s")
 LOG_FILE = os.path.join(os.environ["TEMP"], "dump_checker.log")
 
 

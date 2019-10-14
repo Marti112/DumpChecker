@@ -3,6 +3,8 @@ import logging
 import os
 import re
 import shutil
+import smtplib
+import socket
 import sys
 from threading import Event
 
@@ -13,10 +15,11 @@ from PyQt5.QtWidgets import QMainWindow, QApplication, QMessageBox
 from gmail import Message, GMail
 
 from checker_ui import Ui_MainWindow
-from constants import PathOf
+from constants import PathOf, UTILITY_REG_KEY, EMAIL_RE
 from custom_elements import QLineEditWithEnterClickEvent
-from exceptions import RecipientNotSetError, PathDoesntExist
-from helpers import load_and_get_configs, CONFIG_PATH
+from dumps_db import DumpsDB
+from exceptions import RecipientNotSetError, PathDoesntExist, NetworkConnectionError, DailyEmailQuotaExceededError
+from helpers import load_and_get_configs, CONFIG_PATH, is_admin
 from logger import get_logger
 
 
@@ -58,6 +61,7 @@ class Dump:
 class EmailSenderThread(QThread):
     EmailSenderThreadSignal = QtCore.pyqtSignal(object)
     EmailSendSignal = QtCore.pyqtSignal(object)
+    EmailSendError = QtCore.pyqtSignal(object)
 
     def __init__(self, parent, configs, stop_event):
         super().__init__(parent)
@@ -79,13 +83,20 @@ class EmailSenderThread(QThread):
         email_title = self.configs["EMAIL"]["TITLE"]
         recipient = ";".join(self.configs["EMAIL"]["RECIPIENT_ADDRESSES"])
         msg = Message(email_title, to=recipient, text=message, attachments=attachments)
-        self.EmailSenderThreadSignal.emit(dump_file_names)
         logger.info("Start sending email")
         try:
             gmail.send(msg)
-        except Exception:
+        except socket.gaierror as er:
             logger.exception(f"Can't send message.")
+            self.EmailSendError.emit(NetworkConnectionError(er))
+
+        except smtplib.SMTPDataError as e:
+            logger.exception(f"Can't send message.")
+            self.EmailSendError.emit(DailyEmailQuotaExceededError(e))
+        except Exception as e:
+            logger.exception(f"Email sending Error: {e}")
         else:
+            self.EmailSenderThreadSignal.emit(dump_file_names)
             self.EmailSendSignal.emit(self.dumps)
             logger.info("Email send.")
 
@@ -100,10 +111,10 @@ class CheckThread(QThread):
     def dumps_in_logs(self, log_path):
         dumps = []
         cwd, _, logs = next(os.walk(log_path))
-        for log_file in logs:
-            name, extension = os.path.splitext(log_file)
+        for filename in logs:
+            name, extension = os.path.splitext(filename)
             if extension == ".dmp":
-                dump = Dump(os.path.join(cwd, log_file))
+                dump = Dump(os.path.join(cwd, filename))
                 dumps.append(dump)
         return dumps
 
@@ -119,14 +130,18 @@ class CheckThread(QThread):
 
 
 class DumpChecker(QMainWindow):
-    def __init__(self):
+    def __init__(self, database):
         super(DumpChecker, self).__init__()
+        self.database = database
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self)
-        self.configs = self.load_default_values()
+        self.setWindowTitle(f"Dump checker {'(Administrator)' if is_admin() else ''}")
 
-        self.settings = QSettings("HKEY_LOCAL_MACHINE\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", QSettings.NativeFormat)
-        self.set_value_to_registy_key()
+        self.settings = QSettings("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", QSettings.NativeFormat)
+        self.utility_full_path = QFileInfo(QCoreApplication.applicationFilePath()).filePath().replace("/", "\\")
+
+        self.configs = self.load_default_values()
+        # self.set_value_to_registy_key()
 
         self.check_thread = CheckThread(self, configs=self.configs)
         self.check_thread.CheckerThreadSignal.connect(self.send_email)
@@ -135,6 +150,7 @@ class DumpChecker(QMainWindow):
         self.email_sender_thread = EmailSenderThread(self, configs=self.configs, stop_event=self.email_sender_stop_event)
         self.email_sender_thread.EmailSenderThreadSignal.connect(self.refresh_log_view_message)
         self.email_sender_thread.EmailSendSignal.connect(self.move_old_dumps)
+        self.email_sender_thread.EmailSendError.connect(self.email_send_error)
 
         self.ui.pushButtonStart.clicked.connect(self.start_check)
         self.ui.pushButtonStop.clicked.connect(self.stop_check)
@@ -162,7 +178,6 @@ class DumpChecker(QMainWindow):
         self.ui.spinBoxSeconds.valueChanged.connect(lambda: self.ui.pushButtonSave.setEnabled(True))
 
         self.ui.lineEditLogPath.textChanged.connect(lambda: self.ui.pushButtonSave.setEnabled(True))
-        self.ui.lineEditDumpStoringDirPath.textChanged.connect(lambda: self.ui.pushButtonSave.setEnabled(True))
 
         self.ui.CheckBoxSendDmp.stateChanged.connect(lambda: self.ui.pushButtonSave.setEnabled(True))
         self.ui.сheckBoxRunWithSystem.stateChanged.connect(lambda: self.ui.pushButtonSave.setEnabled(True))
@@ -178,15 +193,53 @@ class DumpChecker(QMainWindow):
 
     def set_value_to_registy_key(self):
         if self.ui.сheckBoxRunWithSystem.isChecked():
-            self.settings.setValue("DumpChecker", QFileInfo(QCoreApplication.applicationFilePath()).filePath().replace("/", "\\"))
+            current_registry_value = self.settings.value(UTILITY_REG_KEY)
+            if current_registry_value is None:
+                logger.info(f"Try to set new value '{self.utility_full_path}'")
+                self.settings.setValue(UTILITY_REG_KEY, self.utility_full_path)
+                if self.settings.value(UTILITY_REG_KEY) != self.utility_full_path:
+                    logger.error(f"Can't add new key '{UTILITY_REG_KEY}' with value '{self.utility_full_path}' to '{self.settings.fileName()}'")
+                    self.ui.сheckBoxRunWithSystem.setChecked(False)
+
+            elif current_registry_value != self.utility_full_path:
+                logger.info(f"Current registry value '{current_registry_value}' differs from new value '{self.utility_full_path}'")
+                logger.info(f"Try to set new value '{self.utility_full_path}'")
+                self.settings.setValue(UTILITY_REG_KEY, self.utility_full_path)
+                if self.settings.value(UTILITY_REG_KEY) != self.utility_full_path:
+                    logger.error(f"Can't add new key '{UTILITY_REG_KEY}' with value '{self.utility_full_path}' to '{self.settings.fileName()}'")
+                    self.ui.сheckBoxRunWithSystem.setChecked(False)
+
+                # self.settings.setValue(UTILITY_REG_KEY, self.utility_full_path)
+                # if self.settings.value(UTILITY_REG_KEY) is None:
+                #     logger.error(f"Can't add new key '{UTILITY_REG_KEY}' with value '{self.utility_full_path}' to '{self.settings.fileName()}'")
+                #     self.ui.сheckBoxRunWithSystem.setChecked(False)
+
         else:
-            self.settings.remove("DumpChecker")
+            self.settings.remove(UTILITY_REG_KEY)
+            if self.settings.value(UTILITY_REG_KEY) is not None:
+                logger.error(f"Can't remove utility registry key '{UTILITY_REG_KEY}' from '{self.settings.fileName()}'")
+                self.ui.сheckBoxRunWithSystem.setChecked(True)
+            else:
+                logger.info(f"Registry key '{UTILITY_REG_KEY}' successfully")
+
         self.settings.sync()
 
     def refresh_log_view_message(self, message):
         old_value = self.ui.textEditLogView.toPlainText()
         self.ui.textEditLogView.setText(f"{old_value}\n{arrow.now().format('DD-MM-YYYY HH:mm:ss'):=^70}\n{message}")
         self.ui.textEditLogView.verticalScrollBar().setValue(self.ui.textEditLogView.verticalScrollBar().maximum())
+
+    def email_send_error(self, error):
+        if isinstance(error, DailyEmailQuotaExceededError):
+            logger.error(f"Limit exceeded: {error}")
+            # self._warning(f"{error.args[0]}.", "Gmail daily quota limit warning")
+            self.refresh_log_view_message(f"Gmail warning: {error.args[0]}.")
+
+        elif isinstance(error, NetworkConnectionError):
+            logger.error(f"Network connection error: {error}")
+            # self.stop_check()
+            # self._warning("Please, check your internet connection and restart.", "Network error")
+            self.refresh_log_view_message(f"Network error. Please, check your internet connection.")
 
     def add_new_recipient_by_enter_click(self, event):
         if event.key() == QtCore.Qt.Key_Return:
@@ -196,10 +249,7 @@ class DumpChecker(QMainWindow):
     def validate_entered_email(self):
         add_email_line_edit_current_value = self.ui.lineEditAddNewRecipient.text()
 
-        email_re = re.compile(r"(^[-!#$%&'*+/=?^_`{}|~0-9A-Z]+(\.[-!#$%&'*+/=?^_`{}|~0-9A-Z]+)*"  # dot-atom
-            r'|^"([\001-\010\013\014\016-\037!#-\[\]-\177]|\\[\001-011\013\014\016-\177])*"'  # quoted-string
-            r')@(?:[A-Z0-9-]+\.)+[A-Z]{2,6}$', re.IGNORECASE)
-        if add_email_line_edit_current_value and email_re.match(add_email_line_edit_current_value):
+        if add_email_line_edit_current_value and EMAIL_RE.match(add_email_line_edit_current_value):
             self.ui.lineEditAddNewRecipient.setStyleSheet("color: rgb(0, 150, 10);")
             self.ui.pushButtonAddNewRecipient.setEnabled(True)
             return True
@@ -223,7 +273,6 @@ class DumpChecker(QMainWindow):
         self.ui.spinBoxSeconds.setValue(int(delay["SECONDS"]))
 
         self.ui.lineEditLogPath.setText(CONFIGS["LOGS_PATH"]["SERVER"])
-        self.ui.lineEditDumpStoringDirPath.setText(CONFIGS["DUMPS_STORING_DIRECTORY"])
 
         self.ui.lineEditEmailTitle.setText(CONFIGS["EMAIL"]["TITLE"])
 
@@ -232,8 +281,8 @@ class DumpChecker(QMainWindow):
         self.ui.CheckBoxSendDmp.setChecked(CONFIGS["EMAIL"]["SEND_DMP_FILES"])
 
         self.ui.listWidgetRecipients.addItems(sorted(CONFIGS["EMAIL"]["RECIPIENT_ADDRESSES"]))
-
-        self.ui.сheckBoxRunWithSystem.setChecked(CONFIGS["UTILITY_CONFIGS"]["LAUNCH_WITH_SYSTEM"])
+        print(self.settings.value(UTILITY_REG_KEY) == self.utility_full_path, 33333)
+        self.ui.сheckBoxRunWithSystem.setChecked(self.settings.value(UTILITY_REG_KEY) == self.utility_full_path)
 
         return CONFIGS
 
@@ -254,33 +303,11 @@ class DumpChecker(QMainWindow):
             self._warning(f"Directory '{log_path}' doesn't exist.\nLoad default value")
             self.ui.lineEditLogPath.setText(CONFIGS["LOGS_PATH"]["SERVER"])
 
-        dump_storing_path = self.ui.lineEditDumpStoringDirPath.text().strip()
-        if os.path.isdir(dump_storing_path):
-            CONFIGS["DUMPS_STORING_DIRECTORY"] = dump_storing_path
-        elif not os.path.isdir(dump_storing_path):
-            answer = QMessageBox.question(self.ui.centralwidget, "", f"Directory {dump_storing_path} doesn't exist.\n"
-                                                                 f"Create?", QMessageBox.No | QMessageBox.Yes, QMessageBox.Yes)
-            if answer == QMessageBox.Yes:
-                try:
-                    os.makedirs(dump_storing_path)
-                except Exception as e:
-                    self._warning(f"{e}\nLoad default value")
-                    self.ui.lineEditDumpStoringDirPath.setText(CONFIGS["DUMPS_STORING_DIRECTORY"])
-
-            elif answer == QMessageBox.No:
-                self.ui.lineEditDumpStoringDirPath.setText(CONFIGS["DUMPS_STORING_DIRECTORY"])
-
-        else:
-            self._warning(f"Dmps storing directory '{log_path}' is incorrect.\nLoad default value")
-            self.ui.lineEditDumpStoringDirPath.setText(CONFIGS["DUMPS_STORING_DIRECTORY"])
-
         CONFIGS["EMAIL"]["TITLE"] = self.ui.lineEditEmailTitle.text()
 
         CONFIGS["EMAIL"]["SUBJECT"] = self.ui.textEditEmailMessage.toPlainText()
 
         CONFIGS["EMAIL"]["SEND_DMP_FILES"] = self.ui.CheckBoxSendDmp.isChecked()
-
-        CONFIGS["UTILITY_CONFIGS"]["LAUNCH_WITH_SYSTEM"] = self.ui.сheckBoxRunWithSystem.isChecked()
 
         CONFIGS["EMAIL"]["RECIPIENT_ADDRESSES"] = self._recipients
         with open(CONFIG_PATH, "w") as f:
@@ -321,7 +348,6 @@ class DumpChecker(QMainWindow):
         try:
             self.check_recipient()
             self.check_path_exist(self.configs["LOGS_PATH"]["SERVER"], PathOf.SERVER)
-            self.check_path_exist(self.configs["DUMPS_STORING_DIRECTORY"], PathOf.DMP_STORING)
         except RecipientNotSetError as er:
             logger.error(er)
             self.ui.lineEditAddNewRecipient.setFocus()
@@ -329,8 +355,6 @@ class DumpChecker(QMainWindow):
             logger.error(er)
             if er.path_to == PathOf.SERVER:
                 self.ui.lineEditLogPath.setFocus()
-            elif er.path_to == PathOf.DMP_STORING:
-                self.ui.lineEditDumpStoringDirPath.setFocus()
 
         else:
             self.check_timer.start(self._wait_time() * 1000)
@@ -369,14 +393,27 @@ class DumpChecker(QMainWindow):
 
     def send_email(self, dumps: [Dump]):
         self.email_sender_stop_event.clear()
-        self.email_sender_thread.dumps = dumps
+        d = []
+        db_current_items = self.database.all_values
+
+        for dump in dumps:
+            if not self.database.check_exist(dump.file_name):
+                d.append(dump)
+        if not d:
+            return
+        self.email_sender_thread.dumps = d
         self.email_sender_thread.configs = self.configs
         self.email_sender_thread.start()
+
+        items_for_remove_from_db = set(db_current_items) - set([item.file_name for item in dumps])
+        logger.info(f"Remove old dump names: {items_for_remove_from_db}")
+        for item in items_for_remove_from_db:
+            self.database.delete(item)
 
     def move_old_dumps(self, dumps):
         for dump in dumps:
             try:
-                shutil.move(dump.full_path, os.path.join(self.ui.lineEditDumpStoringDirPath.text(), dump.file_name))
+                self.database.insert(dump.file_name)
             except Exception as e:
                 logger.error(e)
 
@@ -395,13 +432,19 @@ if __name__ == '__main__':
 
     if not [f for f in os.listdir(os.environ["TEMP"]) if f.find('lock01_dchecker') != -1]:
         NamedTemporaryFile(prefix='lock01_dchecker', delete=True)
+        try:
+            app = QApplication([])
+            application = DumpChecker(DumpsDB())
+            application.show()
+            exit_code = app.exec_()
+        except Exception as e:
+            exit_code = 1
+            logger.exception(f"Fatal error. Exit code {exit_code}. {e}")
+            sys.exit(exit_code)
 
-        app = QApplication([])
-        application = DumpChecker()
-        application.show()
-        exit_code = app.exec_()
-        logger.info(f"exit code: {exit_code}\n")
-        sys.exit(exit_code)
+        else:
+            logger.info(f"exit code: {exit_code}\n")
+            sys.exit(exit_code)
     else:
         logger.info("Another utility instance already running. Exit.")
         sys.exit()

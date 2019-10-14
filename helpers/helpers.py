@@ -55,3 +55,12 @@ def load_and_get_configs():
               f"Creating new config file with default parameters.")
         load_default_config()
         return load_and_get_configs()
+
+
+def is_admin():
+    import ctypes
+
+    try:
+        return os.getuid() == 0
+    except AttributeError:
+        return ctypes.windll.shell32.IsUserAnAdmin() != 0
