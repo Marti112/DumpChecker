@@ -7,11 +7,13 @@ import smtplib
 import socket
 import sys
 from threading import Event
+import resources
 
 import arrow
 from PyQt5 import QtCore
 from PyQt5.QtCore import QThread, QSettings, QCoreApplication, QFileInfo, QTimer
-from PyQt5.QtWidgets import QMainWindow, QApplication, QMessageBox
+from PyQt5.QtGui import QIcon
+from PyQt5.QtWidgets import QMainWindow, QApplication, QMessageBox, QSystemTrayIcon
 from gmail import Message, GMail
 
 from checker_ui import Ui_MainWindow
@@ -132,16 +134,23 @@ class CheckThread(QThread):
 class DumpChecker(QMainWindow):
     def __init__(self, database):
         super(DumpChecker, self).__init__()
+        self.setWindowIcon(QIcon(":/ico/icon.png"))
+
+        self.tray_icon = QSystemTrayIcon(self)
+        self.tray_icon.setIcon(QIcon(":/ico/icon.png"))
+        self.tray_icon.setToolTip(UTILITY_REG_KEY)
+        self.tray_icon.show()
+        self.tray_icon.activated.connect(self.tray_icon_activated)
+
         self.database = database
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self)
         self.setWindowTitle(f"Dump checker {'(Administrator)' if is_admin() else ''}")
 
-        self.settings = QSettings("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", QSettings.NativeFormat)
+        self.settings = QSettings("HKEY_LOCAL_MACHINE\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", QSettings.NativeFormat)
         self.utility_full_path = QFileInfo(QCoreApplication.applicationFilePath()).filePath().replace("/", "\\")
 
         self.configs = self.load_default_values()
-        # self.set_value_to_registy_key()
 
         self.check_thread = CheckThread(self, configs=self.configs)
         self.check_thread.CheckerThreadSignal.connect(self.send_email)
@@ -191,7 +200,13 @@ class DumpChecker(QMainWindow):
         if self.configs["UTILITY_CONFIGS"]["AUTORUN"]:
             self.start_check()
 
-    def set_value_to_registy_key(self):
+    def tray_icon_activated(self):
+        if not self.isVisible():
+            self.show()
+        else:
+            self.hide()
+
+    def set_value_to_registry_key(self):
         if self.ui.сheckBoxRunWithSystem.isChecked():
             current_registry_value = self.settings.value(UTILITY_REG_KEY)
             if current_registry_value is None:
@@ -208,11 +223,6 @@ class DumpChecker(QMainWindow):
                 if self.settings.value(UTILITY_REG_KEY) != self.utility_full_path:
                     logger.error(f"Can't add new key '{UTILITY_REG_KEY}' with value '{self.utility_full_path}' to '{self.settings.fileName()}'")
                     self.ui.сheckBoxRunWithSystem.setChecked(False)
-
-                # self.settings.setValue(UTILITY_REG_KEY, self.utility_full_path)
-                # if self.settings.value(UTILITY_REG_KEY) is None:
-                #     logger.error(f"Can't add new key '{UTILITY_REG_KEY}' with value '{self.utility_full_path}' to '{self.settings.fileName()}'")
-                #     self.ui.сheckBoxRunWithSystem.setChecked(False)
 
         else:
             self.settings.remove(UTILITY_REG_KEY)
@@ -281,14 +291,14 @@ class DumpChecker(QMainWindow):
         self.ui.CheckBoxSendDmp.setChecked(CONFIGS["EMAIL"]["SEND_DMP_FILES"])
 
         self.ui.listWidgetRecipients.addItems(sorted(CONFIGS["EMAIL"]["RECIPIENT_ADDRESSES"]))
-        print(self.settings.value(UTILITY_REG_KEY) == self.utility_full_path, 33333)
+
         self.ui.сheckBoxRunWithSystem.setChecked(self.settings.value(UTILITY_REG_KEY) == self.utility_full_path)
 
         return CONFIGS
 
     def save_new_configs(self):
         CONFIGS = self.configs
-        self.set_value_to_registy_key()
+        self.set_value_to_registry_key()
 
         delay = CONFIGS["DELAY"]
         delay["DAYS"] = self.ui.spinBoxDays.value()
