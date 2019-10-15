@@ -1,8 +1,6 @@
 import json
 import logging
 import os
-import re
-import shutil
 import smtplib
 import socket
 import sys
